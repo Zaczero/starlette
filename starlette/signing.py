@@ -33,16 +33,20 @@ class TimestampSigner:
     - 128-bit HMAC-SHA256 truncated signature (cryptographically strong, compact)
     - 32-bit timestamp (valid until year 2106, compact)
     - Fixed-format encoding (no separators, fast slicing)
+    - Version marker for future compatibility
     - No exceptions on verification (returns None instead)
     - Minimal allocations and copies
 
-    Format: <base64url(payload)><base64url(timestamp4)><base64url(signature16)>
-    Fixed suffix length: 28 chars (6 for timestamp + 22 for signature)
+    Format: <base64url(payload)><base64url(timestamp4)><base64url(signature16)>]
+    Fixed suffix length: 29 chars (6 for timestamp + 22 for signature + 1 for version marker)
+    Version marker ']' allows quick validation and future format changes.
 
     Size comparison for typical 65-byte session:
-    - Total cookie size: 115 chars (87 payload + 28 overhead)
-    - Previous format: 143 chars (50% more overhead)
+    - Total cookie size: 116 chars (87 payload + 29 overhead)
+    - itsdangerous format: 143 chars (50% more overhead)
     """
+
+    VERSION_MARKER = b"]"  # 1-byte version marker for quick validation and future compatibility
 
     def __init__(self, secret: str) -> None:
         """
@@ -62,7 +66,7 @@ class TimestampSigner:
 
         Returns:
             Signed token as bytes (cookie-safe, base64url encoded)
-            Format: <payload><timestamp><signature> (no separators, fixed 28-char suffix)
+            Format: <payload><timestamp><signature>] (fixed 29-char suffix with version marker)
         """
         # Encode payload
         payload_encoded = _base64url_encode(data)
@@ -77,8 +81,8 @@ class TimestampSigner:
         signature = hmac.new(self._secret, message, hashlib.sha256).digest()[:16]  # Truncate to 128 bits
         signature_encoded = _base64url_encode(signature)
 
-        # Fixed format: payload + timestamp (6 chars) + signature (22 chars)
-        return payload_encoded + timestamp_encoded + signature_encoded
+        # Fixed format: payload + timestamp (6 chars) + signature (22 chars) + version marker (1 char)
+        return payload_encoded + timestamp_encoded + signature_encoded + self.VERSION_MARKER
 
     def unsign(self, signed_data: bytes, max_age: int | None = None) -> bytes | None:
         """
@@ -91,15 +95,15 @@ class TimestampSigner:
         Returns:
             Payload bytes on success, None on failure (invalid signature, expired, or malformed)
         """
-        # Fixed format: last 28 chars are timestamp (6) + signature (22)
-        # Minimum length check: at least 28 chars for timestamp + signature
-        if len(signed_data) < 28:
+        # Quick validation: check version marker first (fast rejection of invalid tokens)
+        if len(signed_data) < 29 or signed_data[-1:] != self.VERSION_MARKER:
             return None
 
+        # Fixed format: last 29 chars are timestamp (6) + signature (22) + version marker (1)
         # Extract components using fixed offsets (no split needed - faster!)
-        payload_encoded = signed_data[:-28]
-        timestamp_encoded = signed_data[-28:-22]  # 6 chars for 4-byte timestamp
-        signature_encoded = signed_data[-22:]  # 22 chars for 16-byte signature
+        payload_encoded = signed_data[:-29]
+        timestamp_encoded = signed_data[-29:-23]  # 6 chars for 4-byte timestamp
+        signature_encoded = signed_data[-23:-1]  # 22 chars for 16-byte signature
 
         # Decode timestamp first (needed for signature verification)
         timestamp_bytes = _base64url_decode(timestamp_encoded)

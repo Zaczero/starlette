@@ -5,7 +5,7 @@ This tests an edge case that can't happen in normal usage but is theoretically p
 
 import hashlib
 import hmac
-import time
+from unittest import mock
 
 from starlette.signing import TimestampSigner, _base64url_encode
 
@@ -22,7 +22,8 @@ def test_invalid_payload_with_valid_signature() -> None:
     payload_encoded = b"AAAAA"  # Length 5, will fail base64 decode
 
     # Create valid timestamp
-    timestamp_bytes = int(time.time()).to_bytes(4, "big")
+    with mock.patch("time.time", return_value=1000):
+        timestamp_bytes = int(1000).to_bytes(4, "big")
     timestamp_encoded = _base64url_encode(timestamp_bytes)
 
     # Create a VALID signature over the invalid payload
@@ -32,10 +33,10 @@ def test_invalid_payload_with_valid_signature() -> None:
     signature = hmac.new(b"secret", message, hashlib.sha256).digest()[:16]
     signature_encoded = _base64url_encode(signature)
 
-    # Construct the malicious token
-    malicious_token = payload_encoded + timestamp_encoded + signature_encoded
+    # Construct the malicious token with version marker
+    malicious_token = payload_encoded + timestamp_encoded + signature_encoded + b"]"
 
-    # This should fail at the payload decode step (line 129)
+    # This should fail at the payload decode step
     # not at the signature verification step
     result = signer.unsign(malicious_token)
     assert result is None

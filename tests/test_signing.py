@@ -99,7 +99,7 @@ class TestTimestampSignerBasic:
         assert isinstance(signed, bytes)
 
         # Should be base64url encoded + version marker (only valid chars)
-        valid_chars = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_]")
+        valid_chars = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
         assert all(c in valid_chars for c in signed)
 
     def test_unsign_basic(self) -> None:
@@ -148,7 +148,7 @@ class TestTimestampSignerBasic:
         assert signer2.unsign(signed1) is None  # Wrong secret
 
     def test_format_structure(self) -> None:
-        """Test that format has fixed 29-char suffix with version marker."""
+        """Test that format has fixed 30-char suffix with version marker."""
         signer = TimestampSigner("secret")
 
         # Test with different payload sizes
@@ -156,13 +156,14 @@ class TestTimestampSignerBasic:
             data = b"x" * size
             signed = signer.sign(data)
 
-            # Last 29 chars should be timestamp (6) + signature (22) + version marker (1)
-            assert len(signed) >= 29
+            # Last 30 chars should be timestamp (7) + signature (22) + version marker (1)
+            assert len(signed) >= 30
             payload_len = len(_base64url_encode(data))
-            assert len(signed) == payload_len + 29
+            assert len(signed) == payload_len + 30
 
-            # Version marker should be ']'
-            assert signed[-1:] == b"]"
+            # Version marker should be '_'
+            assert signed[-1] == ord(b"_")
+            assert signed[-1] == 95
 
 
 class TestTimestampValidation:
@@ -254,7 +255,7 @@ class TestSecurityAttacks:
         signed = signer.sign(b"data")
 
         # Tamper with timestamp
-        tampered = signed[:-29] + b"XXXXXX" + signed[-23:]  # Keep signature + marker
+        tampered = signed[:-30] + b"XXXXXX" + signed[-23:]  # Keep signature + marker
         assert signer.unsign(tampered) is None
 
     def test_tampered_payload(self) -> None:
@@ -273,8 +274,8 @@ class TestSecurityAttacks:
         signed2 = signer.sign(b"data2")
 
         # Mix payload from signed1 with suffix from signed2
-        payload1 = signed1[:-29]
-        suffix2 = signed2[-29:]  # timestamp + signature + version marker
+        payload1 = signed1[:-30]
+        suffix2 = signed2[-30:]  # timestamp + signature + version marker
         mixed = payload1 + suffix2
 
         assert signer.unsign(mixed) is None
@@ -350,10 +351,10 @@ class TestMalformedData:
     """Test handling of malformed data."""
 
     def test_too_short_data(self) -> None:
-        """Test that data shorter than 29 chars is rejected."""
+        """Test that data shorter than 30 chars is rejected."""
         signer = TimestampSigner("secret")
 
-        # Less than 29 characters
+        # Less than 30 characters
         assert signer.unsign(b"") is None
         assert signer.unsign(b"a") is None
         assert signer.unsign(b"a" * 28) is None
@@ -367,12 +368,21 @@ class TestMalformedData:
 
         # Create valid token and remove version marker
         signed = signer.sign(b"data")
-        without_marker = signed[:-1]  # Remove ']'
+        without_marker = signed[:-1]  # Remove '_'
         assert signer.unsign(without_marker) is None
 
         # Wrong version marker
         wrong_marker = signed[:-1] + b"X"
         assert signer.unsign(wrong_marker) is None
+
+
+    def test_version_marker_but_too_short(self) -> None:
+        """Test that data with version marker but shorter than 30 chars is rejected."""
+        signer = TimestampSigner("secret")
+
+        # Has version marker '_' at end but too short (< 30 chars)
+        assert signer.unsign(b"short_") is None  # Only 6 chars
+        assert signer.unsign(b"a" * 28 + b"_") is None  # 29 chars total
 
     def test_invalid_base64_in_timestamp(self) -> None:
         """Test that invalid base64 in timestamp is rejected."""
@@ -380,7 +390,7 @@ class TestMalformedData:
         signed = signer.sign(b"data")
 
         # Replace timestamp with invalid base64
-        payload = signed[:-29]
+        payload = signed[:-30]
         tampered = payload + b"!!!!!!" + signed[-23:]  # Keep signature + version marker
         assert signer.unsign(tampered) is None
 
@@ -391,7 +401,7 @@ class TestMalformedData:
 
         # Replace signature with invalid base64
         prefix = signed[:-23]  # Keep payload + timestamp
-        tampered = prefix + b"!" * 22 + b"]"  # Invalid signature + version marker
+        tampered = prefix + b"!" * 22 + b"_"  # Invalid signature + version marker
         assert signer.unsign(tampered) is None
 
     def test_invalid_base64_in_payload(self) -> None:
@@ -403,24 +413,24 @@ class TestMalformedData:
 
         # Replace the payload with invalid base64 (length 4n+1)
         # Keep the valid timestamp + signature + version marker suffix
-        malformed = b"A" + signed[-29:]  # "A" is invalid (length 1)
+        malformed = b"A" + signed[-30:]  # "A" is invalid (length 1)
         assert signer.unsign(malformed) is None
 
         # Another invalid length pattern
-        malformed = b"AAAAA" + signed[-29:]  # Length 5 = 4+1, invalid
+        malformed = b"AAAAA" + signed[-30:]  # Length 5 = 4+1, invalid
         assert signer.unsign(malformed) is None
 
     def test_wrong_timestamp_length(self) -> None:
-        """Test that timestamp not exactly 4 bytes is rejected."""
+        """Test that timestamp not exactly 5 bytes is rejected."""
         signer = TimestampSigner("secret")
         signed = signer.sign(b"data")
 
         # Create timestamp that decodes to wrong length
-        # Using base64url of 3 bytes instead of 4
-        payload = signed[:-29]
+        # Using base64url of 3 bytes instead of 5
+        payload = signed[:-30]
         wrong_timestamp = _base64url_encode(b"xxx")  # 3 bytes, not 4
         signature_and_marker = signed[-23:]  # signature (22) + version marker (1)
-        tampered = payload + wrong_timestamp.ljust(6, b"a") + signature_and_marker
+        tampered = payload + wrong_timestamp.ljust(7, b"a") + signature_and_marker
 
         assert signer.unsign(tampered) is None
 
@@ -485,26 +495,26 @@ class TestEdgeCases:
         # Very large max_age should work
         assert signer.unsign(signed, max_age=2**31 - 1) == b"data"
 
-    def test_timestamp_year_2106_compatibility(self) -> None:
-        """Test that we're using 4-byte timestamp (valid until 2106)."""
+    def test_timestamp_year_36k_compatibility(self) -> None:
+        """Test that we're using 5-byte timestamp (valid until year ~36,811)."""
         signer = TimestampSigner("secret")
         signed = signer.sign(b"data")
 
-        # Extract timestamp portion (6 chars before signature)
-        timestamp_encoded = signed[-29:-23]
+        # Extract timestamp portion (7 chars before signature)
+        timestamp_encoded = signed[-30:-23]
         timestamp_bytes = _base64url_decode(timestamp_encoded)
 
-        # Should be exactly 4 bytes
+        # Should be exactly 5 bytes
         assert timestamp_bytes is not None
-        assert len(timestamp_bytes) == 4
+        assert len(timestamp_bytes) == 5
 
-        # Should be a valid 32-bit timestamp
+        # Should be a valid 40-bit timestamp
         timestamp = int.from_bytes(timestamp_bytes, "big")
-        assert 0 <= timestamp <= 2**32 - 1
+        assert 0 <= timestamp <= 2**40 - 1
 
-        # Current timestamp should be reasonable (after 2020, before 2106)
+        # Current timestamp should be reasonable (after 2020, before 36,811)
         assert timestamp > 1577836800  # 2020-01-01
-        assert timestamp < 4294967295  # 2106-02-07
+        assert timestamp < 1099511627775  # 36,811-02-07
 
     def test_hmac_truncation_to_16_bytes(self) -> None:
         """Test that HMAC is truncated to 16 bytes (128 bits)."""
@@ -535,7 +545,7 @@ class TestEdgeCases:
         tampered_sig_encoded = _base64url_encode(tampered_sig)
 
         # Reconstruct with tampered signature but keep version marker
-        tampered = signed[:-23] + tampered_sig_encoded + b"]"
+        tampered = signed[:-23] + tampered_sig_encoded + b"_"
 
         # Should still be rejected (constant time comparison)
         assert signer.unsign(tampered) is None
@@ -615,8 +625,8 @@ class TestCookieSafety:
             # Check no forbidden characters
             assert not any(c in forbidden for c in signed), f"Forbidden char in {signed!r}"
 
-            # Should only contain base64url chars + version marker ']'
-            valid_chars = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_]")
+            # Should only contain base64url chars + version marker '_'
+            valid_chars = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
             assert all(c in valid_chars for c in signed), f"Invalid char in {signed!r}"
 
     def test_no_padding_in_output(self) -> None:

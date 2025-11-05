@@ -23,7 +23,7 @@ def test_invalid_payload_with_valid_signature() -> None:
 
     # Create valid timestamp
     with mock.patch("time.time", return_value=1000):
-        timestamp_bytes = int(1000).to_bytes(4, "big")
+        timestamp_bytes = int(1000).to_bytes(5, "big")
     timestamp_encoded = _base64url_encode(timestamp_bytes)
 
     # Create a VALID signature over the invalid payload
@@ -34,7 +34,7 @@ def test_invalid_payload_with_valid_signature() -> None:
     signature_encoded = _base64url_encode(signature)
 
     # Construct the malicious token with version marker
-    malicious_token = payload_encoded + timestamp_encoded + signature_encoded + b"]"
+    malicious_token = payload_encoded + timestamp_encoded + signature_encoded + b"_"
 
     # This should fail at the payload decode step
     # not at the signature verification step

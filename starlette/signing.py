@@ -120,7 +120,7 @@ class TimestampSigner:
             timestamp = int.from_bytes(timestamp_bytes, "big")
             current_time = int(time.time())
 
-            if current_time - timestamp > max_age:
+            if current_time - timestamp >= max_age:
                 return None
 
         # Decode and return payload

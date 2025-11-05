@@ -42,8 +42,8 @@ class SessionMiddleware:
 
         if self.session_cookie in connection.cookies:
             data = connection.cookies[self.session_cookie].encode("utf-8")
-            success, payload = self.signer.unsign(data, max_age=self.max_age)
-            if success:
+            payload = self.signer.unsign(data, max_age=self.max_age)
+            if payload is not None:
                 scope["session"] = json.loads(payload)
                 initial_session_was_empty = False
             else:

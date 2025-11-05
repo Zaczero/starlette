@@ -72,7 +72,7 @@ class TimestampSigner:
 
         return message + b"." + signature_encoded
 
-    def unsign(self, signed_data: bytes, max_age: int | None = None) -> tuple[bool, bytes]:
+    def unsign(self, signed_data: bytes, max_age: int | None = None) -> bytes | None:
         """
         Verify and extract data from signed token.
 
@@ -81,13 +81,12 @@ class TimestampSigner:
             max_age: Maximum age in seconds (None = no expiry check)
 
         Returns:
-            Tuple of (success: bool, data: bytes)
-            If success=False, data will be empty bytes b""
+            Payload bytes on success, None on failure (invalid signature, expired, or malformed)
         """
         # Split into components
         parts = signed_data.split(b".")
         if len(parts) != 3:
-            return (False, b"")
+            return None
 
         payload_encoded, timestamp_encoded, signature_encoded = parts
 
@@ -98,23 +97,23 @@ class TimestampSigner:
 
         # Constant-time comparison to prevent timing attacks
         if not hmac.compare_digest(signature_encoded, expected_signature_encoded):
-            return (False, b"")
+            return None
 
         # Decode and verify timestamp if max_age is set
         if max_age is not None:
             timestamp_bytes = _base64url_decode(timestamp_encoded)
             if timestamp_bytes is None or len(timestamp_bytes) != 8:
-                return (False, b"")
+                return None
 
             timestamp = int.from_bytes(timestamp_bytes, "big")
             current_time = int(time.time())
 
             if current_time - timestamp > max_age:
-                return (False, b"")
+                return None
 
         # Decode payload
         payload = _base64url_decode(payload_encoded)
         if payload is None:
-            return (False, b"")
+            return None
 
-        return (True, payload)
+        return payload
